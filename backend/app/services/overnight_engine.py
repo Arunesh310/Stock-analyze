@@ -58,12 +58,16 @@ def run_overnight_cycle() -> Dict[str, Any]:
     summary_lines: list[str] = []
     val_dict: dict = {}
     if validation is not None:
-        # ValidationRunResult is a pydantic-ish dataclass; tolerate both
-        val_dict = (
-            validation.model_dump()
-            if hasattr(validation, "model_dump")
-            else getattr(validation, "__dict__", {}) or {}
-        )
+        # Use mode="json" so any datetime fields become ISO strings — otherwise
+        # they crash the AILearningLog JSON column on commit.
+        if hasattr(validation, "model_dump"):
+            val_dict = validation.model_dump(mode="json")
+        else:
+            val_dict = getattr(validation, "__dict__", {}) or {}
+            # belt-and-braces: stringify any non-JSON-able values
+            for k, v in list(val_dict.items()):
+                if hasattr(v, "isoformat"):
+                    val_dict[k] = v.isoformat()
         summary_lines.append(
             f"Validated {val_dict.get('scanned', 0)} open trades — "
             f"{val_dict.get('closed', 0)} closed "
