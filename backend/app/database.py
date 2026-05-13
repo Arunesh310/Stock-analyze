@@ -11,14 +11,28 @@ from .config import get_settings
 
 _settings = get_settings()
 
-connect_args = {"check_same_thread": False} if _settings.database_url.startswith("sqlite") else {}
+_is_sqlite = _settings.database_url.startswith("sqlite")
 
-engine = create_engine(
-    _settings.database_url,
-    echo=False,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-)
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+
+# Cloud Postgres (Neon, Supabase, etc.) on free tier auto-suspends inactive
+# compute after a few minutes. ``pool_pre_ping`` quietly drops the dead
+# connection and reconnects; ``pool_recycle`` proactively rotates them every
+# 5 min so we never hand a half-dead connection to a request. Pool size is
+# kept conservative to respect free-tier connection limits.
+engine_kwargs = {
+    "echo": False,
+    "pool_pre_ping": True,
+    "connect_args": connect_args,
+}
+if not _is_sqlite:
+    engine_kwargs.update(
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=300,
+    )
+
+engine = create_engine(_settings.database_url, **engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

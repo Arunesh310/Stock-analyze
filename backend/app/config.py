@@ -70,6 +70,18 @@ class Settings(BaseSettings):
             return [item.strip() for item in v.split(",") if item.strip()]
         return v
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalise_db_url(cls, v):
+        """Neon (and some other managed Postgres providers) hand out
+        ``postgres://...`` URLs. SQLAlchemy 2.x only accepts ``postgresql://``
+        so we rewrite the scheme transparently — this means a user can paste
+        either form into the Render env var and it just works.
+        """
+        if isinstance(v, str) and v.startswith("postgres://"):
+            return "postgresql://" + v[len("postgres://") :]
+        return v
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
