@@ -104,12 +104,15 @@ def _last_validation_at() -> Optional[datetime]:
 
 
 def _last_regime_at() -> Optional[datetime]:
+    """The model class is ``MarketRegime`` — earlier this helper referenced a
+    name that doesn't exist, causing the pipeline to silently show ``offline``
+    even when fresh regime snapshots existed."""
     try:
-        from ..models.prediction_engine import MarketRegimeSnapshot
+        from ..models.prediction_engine import MarketRegime
         with db_session() as db:
             row = (
-                db.query(MarketRegimeSnapshot)
-                .order_by(MarketRegimeSnapshot.created_at.desc())
+                db.query(MarketRegime)
+                .order_by(MarketRegime.created_at.desc())
                 .first()
             )
             return row.created_at if row else None
