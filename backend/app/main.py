@@ -52,6 +52,26 @@ from .scheduler import start_scheduler, shutdown_scheduler
 from .ws import live as ws_live
 
 
+def _warm_dashboard_cache() -> None:
+    """Pre-compute the dashboard so the first visitor after deploy doesn't
+    wait 30+ seconds for the yfinance fan-out. Runs in a daemon thread so a
+    slow yfinance run never blocks app startup."""
+    try:
+        # Local import to avoid a circular import on module load.
+        from .routers import dashboard as dashboard_router
+        dashboard_router._compute_dashboard()
+        dashboard_router._cache_payload = (
+            dashboard_router._cache_payload or {}
+        )
+        # _compute_dashboard returns the payload but doesn't write the cache
+        # by itself; we have to mimic the GET path. Easiest: invoke the
+        # endpoint function which does single-flight caching.
+        dashboard_router.dashboard()
+        logger.info("dashboard cache warmed on startup")
+    except Exception as exc:  # pragma: no cover - warm-up must never crash boot
+        logger.warning(f"dashboard cache warm-up failed: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -62,6 +82,10 @@ async def lifespan(app: FastAPI):
         loop = asyncio.get_event_loop()
         ws_live.start_background_tasks(loop)
         start_scheduler()
+        # Warm the heaviest cache in the background so the home page is
+        # snappy from the very first visit after a deploy.
+        import threading as _t
+        _t.Thread(target=_warm_dashboard_cache, daemon=True).start()
     else:
         logger.info("Skipping scheduler + WS — run on a persistent host for full features.")
     yield
