@@ -59,6 +59,16 @@ export type Signal = {
   probability: number;
   detected_patterns: string[];
   timestamp: string;
+  quality_score?: number;
+  quality_grade?:
+    | "AVOID"
+    | "WEAK"
+    | "MODERATE"
+    | "STRONG"
+    | "HIGH_CONVICTION"
+    | "NO_TRADE";
+  quality_breakdown?: Record<string, number>;
+  no_trade_reasons?: string[];
 };
 
 export type DataQuality = {
@@ -106,6 +116,164 @@ export type ResolveResult = {
   listed?: boolean;
   message?: string | null;
   suggestions?: string[];
+};
+
+export type QualityGrade =
+  | "AVOID"
+  | "WEAK"
+  | "MODERATE"
+  | "STRONG"
+  | "HIGH_CONVICTION"
+  | "NO_TRADE";
+
+export type PlannerPick = {
+  symbol: string;
+  name: string;
+  sector: string;
+  action: "BUY" | "SELL" | "HOLD";
+  last_close: number;
+  entry_low: number | null;
+  entry_high: number | null;
+  stoploss: number | null;
+  target1: number | null;
+  target2: number | null;
+  rr: number | null;
+  quality_score: number;
+  quality_grade: QualityGrade;
+  confidence: number;
+  expected_move_pct: number;
+  volatility_pct: number;
+  probability_target_hit: number;
+  quantity: number;
+  capital_deployed: number;
+  capital_at_risk: number;
+  expected_gain_inr: number;
+  reasoning: string;
+  no_trade_reasons: string[];
+};
+
+export type PlannerResponse = {
+  verdict: "REALISTIC" | "SPECULATIVE" | "UNREALISTIC" | "INVALID";
+  message: string;
+  suggestions: string[];
+  target_pct: number;
+  timeframe: string;
+  mode: string;
+  risk_per_trade_pct?: number;
+  picks: PlannerPick[];
+};
+
+export type PlannerRequest = {
+  capital: number;
+  target_amount: number;
+  timeframe: "1m" | "5m" | "10m" | "15m" | "30m" | "1h" | "1d" | "1w" | "1mo";
+  risk_tolerance: "conservative" | "balanced" | "aggressive";
+  mode: "intraday" | "swing" | "positional";
+  max_picks?: number;
+};
+
+export type SyncPipeline = {
+  key: string;
+  label: string;
+  status: "fresh" | "ok" | "stale" | "offline";
+  last_at: string | null;
+  relative: string;
+  detail: string;
+};
+
+export type SyncStatus = {
+  overall_status: "healthy" | "degraded" | "offline";
+  uptime_seconds: number;
+  pipelines: SyncPipeline[];
+  predictions: { total_predictions: number; validated: number };
+  now: string;
+};
+
+export type RollingWindowStats = {
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  avg_return_pct: number;
+  best_return_pct: number;
+  worst_return_pct: number;
+};
+
+export type RollingWindows = {
+  "7d": RollingWindowStats;
+  "30d": RollingWindowStats;
+  "90d": RollingWindowStats;
+  all_time: RollingWindowStats;
+};
+
+export type SignalConversion = {
+  total_signals: number;
+  buy: { trades: number; wins: number; losses: number; win_rate: number };
+  sell: { trades: number; wins: number; losses: number; win_rate: number };
+  target1_hit_rate: number;
+  target2_hit_rate: number;
+  stoploss_hit_rate: number;
+  entry_failure_rate: number;
+  false_breakout_rate: number;
+};
+
+export type ImprovementScore = {
+  score: number;
+  current_window: RollingWindowStats;
+  previous_window: RollingWindowStats;
+  deltas: {
+    win_rate_pp: number;
+    avg_return_pct: number;
+    calibration_pp: number;
+    stoploss_rate_pp: number;
+  };
+  current_calibration: number;
+  narrative: string;
+};
+
+export type LearningChange = {
+  id: number;
+  event: string;
+  summary: string;
+  details: Record<string, any>;
+  impact_score: number;
+  created_at: string | null;
+};
+
+export type StrategyPerformance = {
+  strategy: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  avg_return_pct: number;
+  profit_factor: number | null;
+};
+
+export type RegimeStrategyCell = {
+  regime: string;
+  strategy: string;
+  trades: number;
+  wins: number;
+  win_rate: number;
+};
+
+export type SignalOutcomeRow = {
+  id: number;
+  symbol: string;
+  action: string;
+  confidence: number | null;
+  mode: string;
+  created_at: string | null;
+  verdict: "SUCCESS" | "FAILED" | "EXPIRED" | "NO ENTRY" | "OPEN";
+  return_pct: number | null;
+  target1_hit: boolean | null;
+  target2_hit: boolean | null;
+  stoploss_hit: boolean | null;
+  max_favorable_pct: number | null;
+  max_adverse_pct: number | null;
+  holding_days: number | null;
+  realized_pnl: number | null;
 };
 
 export type PortfolioMetrics = {

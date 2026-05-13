@@ -17,6 +17,8 @@ import {
   Brain,
   Compass,
   Gauge,
+  Sparkles,
+  Calculator,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,9 +34,11 @@ const NAV: {
   { href: "/news", label: "News & Sentiment", icon: Newspaper },
   { href: "/watchlist", label: "Watchlists", icon: Star },
   { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/planner", label: "Capital Planner", icon: Calculator },
   { href: "/backtest", label: "Backtest", icon: Beaker },
   { href: "/chat", label: "AI Assistant", icon: MessageSquare },
 
+  { href: "/evolution", label: "AI Evolution", icon: Sparkles, group: "AI Brain" },
   { href: "/performance", label: "AI Accuracy", icon: Target, group: "AI Brain" },
   { href: "/profit", label: "Simulated Profit", icon: Wallet, group: "AI Brain" },
   { href: "/learning", label: "Learning Feedback", icon: Brain, group: "AI Brain" },
@@ -46,7 +50,11 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-border bg-card/40">
-      <div className="flex items-center gap-2 px-5 py-5 border-b border-border">
+      <Link
+        href="/"
+        className="flex items-center gap-2 px-5 py-5 border-b border-border hover:bg-secondary/40 transition-colors"
+        aria-label="BharatQuant — go to dashboard"
+      >
         <div className="rounded-md bg-primary/15 p-1.5">
           <Activity className="h-5 w-5 text-primary" />
         </div>
@@ -56,7 +64,7 @@ export function Sidebar() {
             AI · NSE / BSE
           </div>
         </div>
-      </div>
+      </Link>
       <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
         {NAV.map((item, idx) => {
           const Icon = item.icon;

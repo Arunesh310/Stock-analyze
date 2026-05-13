@@ -1,0 +1,7 @@
+# Full local development requirements — includes optional integrations
+# that don't run on serverless (Vercel) deployments.
+-r requirements.txt
+
+# Local AI / vector store — install if you want chat memory + Ollama
+chromadb>=0.5
+ollama>=0.4

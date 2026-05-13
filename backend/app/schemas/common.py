@@ -121,6 +121,13 @@ class Signal(BaseModel):
     probability: float = 0
     detected_patterns: List[str] = []
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    # Quality-control fields (filled by quality_engine)
+    quality_score: float = 0  # 0..100 composite
+    quality_grade: Literal[
+        "AVOID", "WEAK", "MODERATE", "STRONG", "HIGH_CONVICTION", "NO_TRADE"
+    ] = "MODERATE"
+    quality_breakdown: dict = Field(default_factory=dict)
+    no_trade_reasons: List[str] = []
 
 
 class AnalysisResponse(BaseModel):

@@ -28,6 +28,16 @@ from loguru import logger
 
 from ..config import get_settings
 from ..schemas.common import OhlcRow, Quote
+
+
+# Lightweight heartbeat for the sync-status panel: updated by the validated
+# get_quote / get_history code paths whenever they successfully serve data.
+_LAST_FETCH_TS: float = 0.0
+
+
+def _heartbeat() -> None:
+    global _LAST_FETCH_TS
+    _LAST_FETCH_TS = time.time()
 from .market_validators import (
     DataQuality,
     merge_quality,
@@ -399,6 +409,8 @@ def get_quote(symbol: str) -> Quote:
     quote, quality = chosen
     _store_quality(symbol, quality)
     _cache_set(key, quote)
+    if not quality.is_synthetic:
+        _heartbeat()
     return quote
 
 

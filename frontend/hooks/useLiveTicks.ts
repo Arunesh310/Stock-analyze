@@ -30,6 +30,13 @@ export function useLiveTicks() {
     let retryTimer: any;
     let stop = false;
 
+    // When deployed on a platform that doesn't support WS (e.g. Vercel
+    // serverless), NEXT_PUBLIC_WS_URL is intentionally empty — skip silently.
+    if (!wsUrl) {
+      setConnected(false);
+      return () => {};
+    }
+
     const connect = () => {
       try {
         ws = new WebSocket(wsUrl);

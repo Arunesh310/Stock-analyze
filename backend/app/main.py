@@ -2,7 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
+
+
+def _is_serverless() -> bool:
+    """True when running on Vercel / Lambda — disables background loops."""
+    return any(
+        os.environ.get(k)
+        for k in ("SERVERLESS", "VERCEL", "AWS_LAMBDA_FUNCTION_NAME")
+    )
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,10 +21,12 @@ from .config import get_settings
 from .database import init_db
 from .logger import setup_logging
 from .routers import (
+    ai_evolution,
     ai_performance,
     alerts,
     analyze,
     backtest,
+    capital_planner,
     chat,
     confidence,
     correlations,
@@ -30,6 +41,7 @@ from .routers import (
     signals,
     simulated_returns,
     stocks,
+    sync_status as sync_status_router,
     validation,
     watchlist,
 )
@@ -41,13 +53,18 @@ from .ws import live as ws_live
 async def lifespan(app: FastAPI):
     setup_logging()
     init_db()
-    logger.info("BharatQuant backend starting up")
-    loop = asyncio.get_event_loop()
-    ws_live.start_background_tasks(loop)
-    start_scheduler()
+    serverless = _is_serverless()
+    logger.info(f"BharatQuant backend starting up (serverless={serverless})")
+    if not serverless:
+        loop = asyncio.get_event_loop()
+        ws_live.start_background_tasks(loop)
+        start_scheduler()
+    else:
+        logger.info("Skipping scheduler + WS — run on a persistent host for full features.")
     yield
     logger.info("BharatQuant backend shutting down")
-    shutdown_scheduler()
+    if not serverless:
+        shutdown_scheduler()
 
 
 def create_app() -> FastAPI:
@@ -113,10 +130,14 @@ def create_app() -> FastAPI:
     app.include_router(confidence.router)
     app.include_router(market_regime.router)
     app.include_router(ai_performance.router)
+    app.include_router(ai_evolution.router)
+    app.include_router(capital_planner.router)
+    app.include_router(sync_status_router.router)
     app.include_router(market_status_router.router)
 
-    # WebSocket
-    app.include_router(ws_live.router)
+    # WebSocket (skipped on serverless — clients fall back to polling)
+    if not _is_serverless():
+        app.include_router(ws_live.router)
 
     return app
 

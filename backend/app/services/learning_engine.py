@@ -58,7 +58,12 @@ def _setup_name_for(pred: PredictionHistory) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _refresh_setup_quality(db: Session) -> List[dict]:
+def _refresh_setup_quality(db: Session) -> tuple[List[dict], List[dict]]:
+    """Refresh setup quality scores. Returns ``(rows, deltas)``.
+
+    ``deltas`` is a list of ``{setup, mode, before, after, win_rate, sample_size}``
+    for setups whose weight multiplier moved by more than 0.05.
+    """
     rows = (
         db.query(PredictionHistory, PredictionOutcome)
         .join(PredictionOutcome, PredictionOutcome.prediction_id == PredictionHistory.id)
@@ -89,6 +94,7 @@ def _refresh_setup_quality(db: Session) -> List[dict]:
                 b["losses"] += 1
 
     out: List[dict] = []
+    deltas: List[dict] = []
     for (setup, mode), b in buckets.items():
         total = b["wins"] + b["losses"] or 1
         wr = b["wins"] / total * 100
@@ -100,6 +106,12 @@ def _refresh_setup_quality(db: Session) -> List[dict]:
         # Need at least 4 samples before we trust the edge enough to move weight
         if b["n"] < 4:
             weight = 1.0
+        # Aggressive failure penalty: 5+ trials with <25% wr → floor immediately
+        if b["n"] >= 5 and wr < 25:
+            weight = 0.5
+        # And reward sustained winners: 5+ trials with >70% wr → push to ceiling
+        elif b["n"] >= 5 and wr > 70:
+            weight = max(weight, 1.4)
 
         row = (
             db.query(SignalQualityScore)
@@ -109,6 +121,7 @@ def _refresh_setup_quality(db: Session) -> List[dict]:
             )
             .one_or_none()
         )
+        prev_weight = float(row.weight_multiplier) if row is not None else 1.0
         if row is None:
             row = SignalQualityScore(setup_name=setup, mode=mode)
             db.add(row)
@@ -133,7 +146,19 @@ def _refresh_setup_quality(db: Session) -> List[dict]:
                 "weight_multiplier": round(weight, 3),
             }
         )
-    return out
+        if abs(round(weight, 3) - round(prev_weight, 3)) >= 0.05:
+            deltas.append(
+                {
+                    "type": "setup",
+                    "name": setup,
+                    "mode": mode,
+                    "before": round(prev_weight, 3),
+                    "after": round(weight, 3),
+                    "win_rate": round(wr, 2),
+                    "sample_size": b["n"],
+                }
+            )
+    return out, deltas
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +282,7 @@ def _indicator_signals(pred: PredictionHistory) -> Dict[str, str]:
     return out
 
 
-def _refresh_indicator_performance(db: Session) -> List[dict]:
+def _refresh_indicator_performance(db: Session) -> tuple[List[dict], List[dict]]:
     rows = (
         db.query(PredictionHistory, PredictionOutcome)
         .join(PredictionOutcome, PredictionOutcome.prediction_id == PredictionHistory.id)
@@ -297,6 +322,7 @@ def _refresh_indicator_performance(db: Session) -> List[dict]:
                     b["losses"] += 1
 
     out: List[dict] = []
+    deltas: List[dict] = []
     for (ind, regime, mode), b in buckets.items():
         total = b["wins"] + b["losses"] or 1
         wr = b["wins"] / total * 100
@@ -306,6 +332,11 @@ def _refresh_indicator_performance(db: Session) -> List[dict]:
             weight = 1.0
         else:
             weight = max(0.5, min(1.5, 1.0 + edge * 0.5))
+        # Aggressive penalty for repeated failures
+        if b["n"] >= 5 and wr < 30:
+            weight = 0.5
+        elif b["n"] >= 5 and wr > 70:
+            weight = max(weight, 1.4)
         row = (
             db.query(IndicatorPerformance)
             .filter(
@@ -315,6 +346,7 @@ def _refresh_indicator_performance(db: Session) -> List[dict]:
             )
             .one_or_none()
         )
+        prev_weight = float(row.weight) if row is not None else 1.0
         if row is None:
             row = IndicatorPerformance(indicator=ind, regime=regime, mode=mode)
             db.add(row)
@@ -338,7 +370,20 @@ def _refresh_indicator_performance(db: Session) -> List[dict]:
                 "weight": round(weight, 3),
             }
         )
-    return out
+        if abs(round(weight, 3) - round(prev_weight, 3)) >= 0.05:
+            deltas.append(
+                {
+                    "type": "indicator",
+                    "name": ind,
+                    "regime": regime,
+                    "mode": mode,
+                    "before": round(prev_weight, 3),
+                    "after": round(weight, 3),
+                    "win_rate": round(wr, 2),
+                    "sample_size": b["n"],
+                }
+            )
+    return out, deltas
 
 
 # ---------------------------------------------------------------------------
@@ -346,25 +391,59 @@ def _refresh_indicator_performance(db: Session) -> List[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _humanise_delta(d: dict) -> str:
+    """Translate a weight-change dict into a one-line summary."""
+    direction = "lifted" if d["after"] > d["before"] else "reduced"
+    if d["type"] == "indicator":
+        regime = d.get("regime", "any")
+        regime_str = f"in {regime.replace('_', ' ')} regime" if regime not in {"any", "unknown"} else "across regimes"
+        return (
+            f"{d['name'].upper()} weight {direction} {d['before']:.2f} → {d['after']:.2f} "
+            f"{regime_str} (win-rate {d['win_rate']:.0f}%, n={d['sample_size']})"
+        )
+    return (
+        f"Setup '{d['name']}' weight {direction} {d['before']:.2f} → {d['after']:.2f} "
+        f"on {d['mode']} (win-rate {d['win_rate']:.0f}%, n={d['sample_size']})"
+    )
+
+
 def run_learning_cycle() -> dict:
-    """Re-run all learning aggregations. Returns a small summary."""
+    """Re-run all learning aggregations and emit transparent change logs.
+
+    Each cycle writes one summary log + one individual log per non-trivial
+    weight change so users can audit exactly *what* the AI updated.
+    """
     out: Dict[str, object] = {}
     try:
         with db_session() as db:
-            setups = _refresh_setup_quality(db)
+            setups, setup_deltas = _refresh_setup_quality(db)
             sectors = _refresh_sector_performance(db)
-            indicators = _refresh_indicator_performance(db)
+            indicators, ind_deltas = _refresh_indicator_performance(db)
+            all_deltas = setup_deltas + ind_deltas
             out = {
                 "setups_updated": len(setups),
                 "sectors_updated": len(sectors),
                 "indicators_updated": len(indicators),
+                "weight_changes": len(all_deltas),
             }
+            # One per material change for fine-grained audit trail
+            for d in all_deltas[:50]:  # cap to avoid log spam
+                impact = abs(d["after"] - d["before"]) * d["sample_size"]
+                db.add(
+                    AILearningLog(
+                        event="weight_changed",
+                        summary=_humanise_delta(d),
+                        details=d,
+                        impact_score=round(impact, 3),
+                    )
+                )
             db.add(
                 AILearningLog(
                     event="weights_adjusted",
                     summary=(
                         f"Learning cycle: refreshed {len(setups)} setups, "
-                        f"{len(sectors)} sectors, {len(indicators)} indicator/regime pairs."
+                        f"{len(sectors)} sectors, {len(indicators)} indicator/regime pairs"
+                        + (f", {len(all_deltas)} weight changes" if all_deltas else "")
                     ),
                     details=out,
                 )

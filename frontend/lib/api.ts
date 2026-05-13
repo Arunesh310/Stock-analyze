@@ -11,7 +11,9 @@ import type {
   EquityCurvePoint,
   FeedbackCategoryCount,
   HeatmapCell,
+  ImprovementScore,
   IndicatorPerformanceRow,
+  LearningChange,
   LearningFeedbackRow,
   LearningLog,
   MarketRegimeSnapshot,
@@ -20,16 +22,24 @@ import type {
   OhlcRow,
   PerformanceSummary,
   PortfolioMetrics,
+  PlannerRequest,
+  PlannerResponse,
   PredictionFull,
   Quote,
   QuoteWithQuality,
   RegimePerformance,
+  RegimeStrategyCell,
   ResolveResult,
+  RollingWindows,
   SearchHit,
   SectorPerformance,
   SectorStrength,
   SetupQuality,
   Signal,
+  SignalConversion,
+  SignalOutcomeRow,
+  StrategyPerformance,
+  SyncStatus,
   ValidationRunResult,
   WatchlistOut,
 } from "./types";
@@ -38,8 +48,12 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
 export const apiBase = API_URL;
+// Empty string disables WS entirely (production / serverless backends).
 export const wsUrl =
-  process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/live";
+  process.env.NEXT_PUBLIC_WS_URL ??
+  (typeof window !== "undefined" && window.location.protocol === "https:"
+    ? ""
+    : "ws://localhost:8000/ws/live");
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -95,13 +109,23 @@ export const api = {
     ),
 
   // Signals
-  signals: (params: { mode?: string; min_conf?: number; limit?: number; sector?: string } = {}) => {
+  signals: (
+    params: {
+      mode?: string;
+      min_conf?: number;
+      min_grade?: "AVOID" | "WEAK" | "MODERATE" | "STRONG" | "HIGH_CONVICTION";
+      limit?: number;
+      sector?: string;
+    } = {}
+  ) => {
     const usp = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v !== undefined && usp.set(k, String(v)));
     return http<Signal[]>(`/api/signals?${usp.toString()}`);
   },
   topPicks: (mode = "swing", limit = 10) =>
     http<Signal[]>(`/api/signals/top-picks?mode=${mode}&limit=${limit}`),
+  opportunities: (mode = "swing", limit = 12) =>
+    http<Signal[]>(`/api/signals/opportunities?mode=${mode}&limit=${limit}`),
 
   // News
   news: (limit = 50, sector?: string, symbol?: string) => {
@@ -338,4 +362,37 @@ export const api = {
   },
 
   aiPerformance: () => http<AIRollup>(`/api/ai-performance`),
+
+  syncStatus: () => http<SyncStatus>(`/api/sync-status`),
+
+  planner: (req: PlannerRequest) =>
+    http<PlannerResponse>(`/api/capital-planner`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  evolution: {
+    rolling: (mode?: string) =>
+      http<RollingWindows>(`/api/ai-evolution/rolling${mode ? `?mode=${mode}` : ""}`),
+    signalConversion: (mode?: string) =>
+      http<SignalConversion>(
+        `/api/ai-evolution/signal-conversion${mode ? `?mode=${mode}` : ""}`
+      ),
+    improvementScore: (mode?: string) =>
+      http<ImprovementScore>(
+        `/api/ai-evolution/improvement-score${mode ? `?mode=${mode}` : ""}`
+      ),
+    recentChanges: (limit = 30) =>
+      http<LearningChange[]>(`/api/ai-evolution/recent-changes?limit=${limit}`),
+    strategyPerformance: (mode?: string) =>
+      http<StrategyPerformance[]>(
+        `/api/ai-evolution/strategy-performance${mode ? `?mode=${mode}` : ""}`
+      ),
+    regimeStrategyMatrix: (mode?: string) =>
+      http<RegimeStrategyCell[]>(
+        `/api/ai-evolution/regime-strategy-matrix${mode ? `?mode=${mode}` : ""}`
+      ),
+    recentOutcomes: (limit = 50) =>
+      http<SignalOutcomeRow[]>(`/api/ai-evolution/recent-outcomes?limit=${limit}`),
+  },
 };

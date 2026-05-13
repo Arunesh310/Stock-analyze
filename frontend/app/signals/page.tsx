@@ -11,10 +11,21 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { fmtNumber } from "@/lib/utils";
 
 type Mode = "intraday" | "swing" | "positional";
+type Grade = "WEAK" | "MODERATE" | "STRONG" | "HIGH_CONVICTION";
+
+const GRADE_TONE: Record<string, string> = {
+  HIGH_CONVICTION: "bg-bull/25 text-bull border-bull/40",
+  STRONG: "bg-bull/15 text-bull border-bull/30",
+  MODERATE: "bg-primary/15 text-primary border-primary/30",
+  WEAK: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  AVOID: "bg-bear/15 text-bear border-bear/30",
+  NO_TRADE: "bg-bear/25 text-bear border-bear/40",
+};
 
 export default function SignalsPage() {
   const [mode, setMode] = React.useState<Mode>("swing");
   const [minConf, setMinConf] = React.useState(60);
+  const [minGrade, setMinGrade] = React.useState<Grade>("MODERATE");
   const [signals, setSignals] = React.useState<Signal[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -22,14 +33,14 @@ export default function SignalsPage() {
     let cancelled = false;
     setLoading(true);
     api
-      .signals({ mode, min_conf: minConf, limit: 50 })
+      .signals({ mode, min_conf: minConf, min_grade: minGrade, limit: 50 })
       .then((s) => !cancelled && setSignals(s))
       .catch(() => !cancelled && setSignals([]))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [mode, minConf]);
+  }, [mode, minConf, minGrade]);
 
   return (
     <div className="space-y-6">
@@ -37,10 +48,12 @@ export default function SignalsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">AI Signals</h1>
           <p className="text-sm text-muted-foreground">
-            Ranked BUY/SELL signals across the curated NSE universe.
+            High-probability setups only. Every signal passes a multi-stage
+            quality filter — empty list means today&rsquo;s market has no
+            actionable setups, and the disciplined move is to wait.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
             <TabsList>
               <TabsTrigger value="intraday">Intraday</TabsTrigger>
@@ -54,6 +67,12 @@ export default function SignalsPage() {
             <option value="65">≥ 65% confidence</option>
             <option value="75">≥ 75% confidence</option>
           </Select>
+          <Select value={minGrade} onChange={(e) => setMinGrade(e.target.value as Grade)}>
+            <option value="WEAK">Grade ≥ WEAK</option>
+            <option value="MODERATE">Grade ≥ MODERATE</option>
+            <option value="STRONG">Grade ≥ STRONG</option>
+            <option value="HIGH_CONVICTION">Grade = HIGH CONVICTION</option>
+          </Select>
         </div>
       </div>
 
@@ -65,8 +84,14 @@ export default function SignalsPage() {
         </div>
       ) : signals.length === 0 ? (
         <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            No signals match the filters. Try lowering the confidence threshold.
+          <CardContent className="p-6 text-sm text-muted-foreground space-y-2">
+            <p className="font-medium text-foreground">No actionable setups right now.</p>
+            <p>
+              The market does not currently offer a setup that passes the
+              quality filter at this grade. This is by design — capital
+              preservation trumps signal volume. Try lowering the grade or wait
+              for the next refresh.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -74,8 +99,19 @@ export default function SignalsPage() {
           {signals.map((s) => (
             <Link key={s.symbol + s.action} href={`/stocks/${encodeURIComponent(s.symbol)}`}>
               <Card className="hover:border-primary/50">
-                <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle className="text-base">{s.symbol.replace(".NS", "")}</CardTitle>
+                <CardHeader className="flex-row items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{s.symbol.replace(".NS", "")}</CardTitle>
+                    {s.quality_grade && (
+                      <span
+                        className={`inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                          GRADE_TONE[s.quality_grade] || GRADE_TONE.MODERATE
+                        }`}
+                      >
+                        {s.quality_grade.replace("_", " ")} · {(s.quality_score ?? 0).toFixed(0)}
+                      </span>
+                    )}
+                  </div>
                   <Badge variant={s.action === "BUY" ? "bull" : s.action === "SELL" ? "bear" : "neutral"}>
                     {s.action} · {s.confidence.toFixed(0)}%
                   </Badge>

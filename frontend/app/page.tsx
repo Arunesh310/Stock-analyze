@@ -2,6 +2,7 @@
 import * as React from "react";
 import { api } from "@/lib/api";
 import type { AIRollup, DashboardData, Signal } from "@/lib/types";
+import { SyncStatusPanel } from "@/components/system/SyncStatusPanel";
 import { IndexStrip } from "@/components/market/IndexStrip";
 import { QuoteCard } from "@/components/market/QuoteCard";
 import { MoversList } from "@/components/market/MoversList";
@@ -95,6 +96,8 @@ export default function HomePage() {
           Live snapshot of Indian markets, sector strength and AI top picks.
         </p>
       </div>
+
+      <SyncStatusPanel />
 
       <IndexStrip items={data.indices} />
 

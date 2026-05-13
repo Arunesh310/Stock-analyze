@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import List, Set
+
+
+# Heartbeat for the sync-status panel.
+_LAST_BROADCAST_TS: float = 0.0
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -31,6 +36,7 @@ class ConnectionManager:
         self.active.discard(ws)
 
     async def broadcast(self, payload: dict) -> None:
+        global _LAST_BROADCAST_TS
         msg = json.dumps(payload, default=str)
         dead: List[WebSocket] = []
         for ws in self.active:
@@ -40,6 +46,7 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.active.discard(ws)
+        _LAST_BROADCAST_TS = time.time()
 
 
 manager = ConnectionManager()
