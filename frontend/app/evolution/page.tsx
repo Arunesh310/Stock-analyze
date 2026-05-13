@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { FailureAnalysisSection } from "@/components/evolution/FailureAnalysis";
+import { MLConfidenceSection } from "@/components/evolution/MLConfidence";
 import { cn, fmtPct, pctClass } from "@/lib/utils";
 
 type Mode = "all" | "intraday" | "swing" | "positional";
@@ -159,6 +160,12 @@ export default function EvolutionPage() {
 
       {/* ---- Signal conversion ---- */}
       <ConversionCard conversion={conversion} />
+
+      {/* ---- XGBoost ML confidence model ---- */}
+      <MLConfidenceSection
+        refreshSignal={refreshSignal}
+        onRetrained={() => setRefreshSignal((n) => n + 1)}
+      />
 
       {/* ---- Failure Analysis Reports (what failed + what AI learned) ---- */}
       <FailureAnalysisSection

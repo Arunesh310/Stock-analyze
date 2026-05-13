@@ -69,6 +69,9 @@ export type Signal = {
     | "NO_TRADE";
   quality_breakdown?: Record<string, number>;
   no_trade_reasons?: string[];
+  ml_confidence?: number | null;
+  ml_p_win?: number | null;
+  rule_confidence?: number | null;
 };
 
 export type DataQuality = {
@@ -201,8 +204,56 @@ export type SyncStatus = {
   };
   learning_updates_24h?: number;
   market_session?: MarketSessionInfo;
+  ml_model?: MLModelSummary;
   now: string;
 };
+
+export type MLModelSummary = {
+  ready: boolean;
+  trained_at: string | null;
+  train_samples: number;
+  min_required_samples: number;
+  cv_auc: number | null;
+  cv_accuracy: number | null;
+};
+
+export type MLModelTopFeature = [string, number];
+
+export type MLModelStatus = {
+  ready: boolean;
+  trained_at: string | null;
+  train_samples: number;
+  min_required_samples: number;
+  ml_blend_weight: number;
+  cv_auc: number | null;
+  cv_accuracy: number | null;
+  cv_log_loss: number | null;
+  cv_folds: number;
+  win_rate_in_sample: number | null;
+  top_features: MLModelTopFeature[];
+  last_error: string | null;
+};
+
+export type MLRetrainResult =
+  | {
+      ok: true;
+      trained: true;
+      samples: number;
+      cv_auc: number | null;
+      cv_accuracy: number | null;
+      cv_log_loss: number | null;
+      cv_folds: number;
+      win_rate_in_sample: number | null;
+      trained_at: string;
+      top_features: MLModelTopFeature[];
+    }
+  | {
+      ok: boolean;
+      trained: false;
+      samples: number;
+      min_required?: number;
+      message: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Failure analysis

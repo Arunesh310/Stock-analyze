@@ -19,6 +19,8 @@ import type {
   LearningLog,
   MarketRegimeSnapshot,
   MarketStatus,
+  MLModelStatus,
+  MLRetrainResult,
   NewsItem,
   OhlcRow,
   OvernightStatus,
@@ -431,5 +433,11 @@ export const api = {
   preMarket: {
     brief: () => http<PreMarketBrief>(`/api/pre-market`),
     refresh: () => http<PreMarketBrief>(`/api/pre-market/refresh`, { method: "POST" }),
+  },
+
+  ml: {
+    status: () => http<MLModelStatus>(`/api/ml/status`),
+    retrain: () =>
+      http<MLRetrainResult>(`/api/ml/retrain`, { method: "POST" }),
   },
 };
