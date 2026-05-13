@@ -1,0 +1,16 @@
+.cache/
+*.db
+*.sqlite
+*.log
+__pycache__/
+.pytest_cache/
+tests/
+.venv/
+venv/
+chroma/
+chroma_store/
+requirements-full.txt
+# Local dev env file MUST NOT ship to Vercel — it overrides production env vars.
+.env
+.env.local
+.env.development

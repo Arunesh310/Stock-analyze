@@ -79,10 +79,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    cors_origins = settings.cors_origins or ["*"]
+    allow_creds = True
+    if "*" in cors_origins:
+        # The CORS spec forbids credentials + wildcard origin. We don't use
+        # cookies for auth (just HTTP calls), so disabling credentials here
+        # is safe and lets us accept calls from any Vercel preview URL.
+        allow_creds = False
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins or ["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=allow_creds,
         allow_methods=["*"],
         allow_headers=["*"],
     )

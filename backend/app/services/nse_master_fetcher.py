@@ -25,7 +25,14 @@ from loguru import logger
 
 URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
 
-_CACHE_DIR = Path(__file__).resolve().parents[2] / ".cache"
+def _default_cache_dir() -> Path:
+    # On serverless (read-only filesystem) the only writable path is /tmp.
+    if any(os.environ.get(k) for k in ("SERVERLESS", "VERCEL", "AWS_LAMBDA_FUNCTION_NAME")):
+        return Path("/tmp") / "bharatquant_cache"
+    return Path(__file__).resolve().parents[2] / ".cache"
+
+
+_CACHE_DIR = _default_cache_dir()
 _CACHE_FILE = _CACHE_DIR / "nse_equity_l.csv"
 _REFRESH_SECONDS = 60 * 60 * 24  # 24h
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 # Ensure the backend package is importable when Vercel runs this file
@@ -26,10 +27,41 @@ _THIS_DIR = Path(__file__).resolve().parent
 _BACKEND_DIR = _THIS_DIR.parent  # backend/
 sys.path.insert(0, str(_BACKEND_DIR))
 
-# Force SQLite into /tmp (the only writeable filesystem on Vercel).
-os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/bharatquant.db")
-# Tell the app it's running serverless so it can skip scheduler/WS work.
-os.environ.setdefault("SERVERLESS", "1")
+
+def _writable_tmp_dir() -> str:
+    """Pick a writable scratch directory.
+
+    Vercel/Lambda only allow writes under ``/tmp``. tempfile.gettempdir()
+    returns that on Linux. On Windows local dev this falls back to the
+    standard temp folder so we never crash on import.
+    """
+    candidates = ["/tmp", tempfile.gettempdir()]
+    for path in candidates:
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".bharatquant_probe")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+            return path
+        except OSError:
+            continue
+    # Last resort — shouldn't happen.
+    return "/tmp"
+
+
+_TMP = _writable_tmp_dir()
+_DB_PATH = os.path.join(_TMP, "bharatquant.db")
+
+# Pydantic Settings prefers env vars over .env files, but we also explicitly
+# OVERRIDE here (not setdefault) because anything left over from build-time
+# can otherwise win — and our local .env carries a sqlite:///./app.db value
+# that won't resolve under /var/task at runtime.
+os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
+os.environ["SERVERLESS"] = "1"
+os.environ.setdefault("CORS_ORIGINS", "*")
+
+print(f"[bharatquant] serverless boot — DB={os.environ['DATABASE_URL']}", file=sys.stderr)
 
 from app.main import create_app  # noqa: E402
 
