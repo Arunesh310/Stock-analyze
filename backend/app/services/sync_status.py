@@ -203,15 +203,18 @@ def _market_session_eta() -> dict[str, Any]:
     """Time-to-next session boundary, sourced from market_status."""
     try:
         from . import market_status
-        snap = market_status.get_market_status()
-        as_dict = snap.model_dump() if hasattr(snap, "model_dump") else dict(snap)
+        snap = market_status.get_status()
         return {
-            "state": as_dict.get("state"),
-            "is_open": as_dict.get("is_open"),
-            "label": as_dict.get("label"),
-            "seconds_until_next": as_dict.get("seconds_until_next"),
-            "next_open_at": as_dict.get("next_open_at"),
-            "next_close_at": as_dict.get("next_close_at"),
+            "state": snap.state,
+            "is_open": snap.is_open,
+            "label": snap.label,
+            "seconds_until_next": snap.seconds_until_next,
+            "next_open_at": (
+                snap.next_open_at.isoformat() if snap.next_open_at else None
+            ),
+            "next_close_at": (
+                snap.next_close_at.isoformat() if snap.next_close_at else None
+            ),
         }
     except Exception:
         return {
