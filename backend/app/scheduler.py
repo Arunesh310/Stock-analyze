@@ -1,17 +1,21 @@
-"""APScheduler-backed background jobs for the prediction engine.
+"""APScheduler-backed background jobs (lightweight in-process scheduler).
 
-Schedule (per project requirements):
+Heavy compute (signal scan, dashboard refresh, overnight cycle, pre-market
+brief, ML retrain, market regime, news, validation) is intentionally NOT
+run in this process. Those jobs live on GitHub Actions
+(``.github/workflows/compute.yml``) which calls
+``backend.scripts.run_job`` on a beefy CI runner and writes results
+directly to Neon Postgres. The backend then just reads from there.
 
-- **stock prices**         : every 1 minute  — light cache refresh
-- **indicators**           : every 5 minutes — refresh adaptive weights cache
-- **signal validation**    : every 15 minutes — validate open predictions
-- **news**                 : every 2 hours — refresh news cache
-- **learning cycle**       : after every validation cycle
-- **market regime snapshot**: every 30 minutes
-- **confidence recalibration**: every 6 hours
+This module keeps only cheap house-keeping jobs that have to live in the
+API process because they touch in-memory caches:
 
-All jobs are wrapped in try/except so a single failing run never kills the
-scheduler. The scheduler is started inside the FastAPI lifespan context.
+- ``indicators_5m`` — resets the adaptive-scoring weights cache so the
+  next request uses the freshest learning output pulled from DB.
+- ``expire_1h``     — marks predictions whose horizon has passed.
+
+The remaining ``job_*`` helpers below are still exported so other routers
+can invoke them on demand, but they're no longer scheduled here.
 """
 from __future__ import annotations
 
@@ -122,71 +126,36 @@ def job_ml_retrain() -> None:
 
 
 def start_scheduler() -> None:
-    """Start the background scheduler. Idempotent."""
+    """Start the background scheduler. Idempotent.
+
+    Heavy jobs (signal scan, dashboard refresh, overnight cycle, pre-market
+    brief, ML retrain) have been MOVED to GitHub Actions so the Render free
+    tier (512 MB / 0.5 CPU) does not fall over under load. The scheduler
+    here now only runs cheap house-keeping jobs that need to react fast to
+    in-process state.
+    """
     global _scheduler
     if _scheduler is not None:
         return
     sched = BackgroundScheduler(timezone="Asia/Kolkata", daemon=True)
 
-    sched.add_job(
-        lambda: _safe("prices_1m", job_refresh_prices),
-        "interval", minutes=1, id="prices_1m", coalesce=True, max_instances=1,
-    )
+    # Cheap: just resets in-process caches so the next scan uses the latest
+    # adaptive weights pulled from DB. ~20 ms.
     sched.add_job(
         lambda: _safe("indicators_5m", job_refresh_indicators_weights),
         "interval", minutes=5, id="indicators_5m", coalesce=True, max_instances=1,
     )
-    sched.add_job(
-        lambda: _safe("validate_15m", job_validation_then_learning),
-        "interval", minutes=15, id="validate_15m", coalesce=True, max_instances=1,
-    )
-    sched.add_job(
-        lambda: _safe("news_2h", job_refresh_news),
-        "interval", hours=2, id="news_2h", coalesce=True, max_instances=1,
-    )
-    sched.add_job(
-        lambda: _safe("regime_30m", job_snapshot_regime),
-        "interval", minutes=30, id="regime_30m", coalesce=True, max_instances=1,
-    )
-    sched.add_job(
-        lambda: _safe("confidence_6h", job_recalibrate_confidence),
-        "interval", hours=6, id="confidence_6h", coalesce=True, max_instances=1,
-    )
+    # Cheap: marks expired predictions in DB. Single update query.
     sched.add_job(
         lambda: _safe("expire_1h", job_expire_stale),
         "interval", hours=1, id="expire_1h", coalesce=True, max_instances=1,
     )
 
-    # ---- Daily cron jobs (Asia/Kolkata) ------------------------------------
-    # Overnight: 15:40 IST — 10 min after NSE close. Heavy validation + learn.
-    sched.add_job(
-        lambda: _safe("overnight_1540", job_overnight_cycle),
-        "cron", hour=15, minute=40, day_of_week="mon-fri",
-        id="overnight_1540", coalesce=True, max_instances=1,
-    )
-    # Pre-market: 08:30 IST — 45 min before NSE open. Global cues + verdict.
-    sched.add_job(
-        lambda: _safe("premarket_0830", job_pre_market_brief),
-        "cron", hour=8, minute=30, day_of_week="mon-fri",
-        id="premarket_0830", coalesce=True, max_instances=1,
-    )
-    # ML retrain: weekly on Sunday 02:00 IST + a one-off attempt 30 min after
-    # boot so a fresh container retrains as soon as the persistent DB has
-    # enough validated trades.
-    sched.add_job(
-        lambda: _safe("ml_retrain_weekly", job_ml_retrain),
-        "cron", hour=2, minute=0, day_of_week="sun",
-        id="ml_retrain_weekly", coalesce=True, max_instances=1,
-    )
-    sched.add_job(
-        lambda: _safe("ml_retrain_warmup", job_ml_retrain),
-        "interval", hours=12, id="ml_retrain_warmup",
-        coalesce=True, max_instances=1,
-    )
-
     sched.start()
     _scheduler = sched
-    logger.info("BharatQuant scheduler started.")
+    logger.info(
+        "BharatQuant scheduler started (lightweight — heavy jobs are on CI)."
+    )
 
 
 def shutdown_scheduler() -> None:

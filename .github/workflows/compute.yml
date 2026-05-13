@@ -1,0 +1,111 @@
+name: bharatquant compute (heavy jobs on CI)
+
+# Why this workflow exists
+# ------------------------
+# Render's free tier (512 MB RAM, 0.5 CPU) cannot reliably run yfinance
+# fan-outs, XGBoost training, or heavy signal scans alongside serving
+# requests. So all the expensive periodic jobs live here on GitHub's free
+# Ubuntu runners (4 CPU, 16 GB RAM) and write straight to Neon Postgres
+# via the same service code the API uses. The backend then just reads.
+#
+# Schedule notes
+# --------------
+# - GitHub cron is best-effort; jobs can be delayed 5-15 min on free tier.
+# - All cron expressions below are UTC. India is UTC+5:30.
+# - NSE trading hours = 09:15 to 15:30 IST = 03:45 to 10:00 UTC.
+
+on:
+  schedule:
+    # Pre-market brief — 08:30 IST = 03:00 UTC, Mon-Fri
+    - cron: "0 3 * * 1-5"
+    # Dashboard + market regime + news every 10 min during market hours
+    # (NSE 09:15-15:30 IST = 03:45-10:00 UTC). We start at 03:30 UTC so the
+    # first refresh lands before the bell.
+    - cron: "*/10 3-10 * * 1-5"
+    # Signal scan every 30 min during market hours
+    - cron: "0,30 4-10 * * 1-5"
+    # Overnight learning cycle — 15:45 IST = 10:15 UTC, Mon-Fri
+    - cron: "15 10 * * 1-5"
+    # Single after-close dashboard so the home page is fresh overnight
+    - cron: "30 10 * * 1-5"
+    # Weekly ML retrain — Sunday 02:00 IST = Saturday 20:30 UTC
+    - cron: "30 20 * * 6"
+    # Daily catch-all dashboard at 06:30 UTC (12:00 IST lunch) just in case
+    - cron: "30 6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run manually"
+        required: true
+        default: "dashboard"
+        type: choice
+        options:
+          - dashboard
+          - signal_scan
+          - validation
+          - overnight
+          - pre_market
+          - market_regime
+          - ml_retrain
+          - news
+          - all_market_hours
+
+concurrency:
+  group: bharatquant-compute
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  run:
+    name: ${{ github.event.inputs.job || 'scheduled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LOG_LEVEL: INFO
+      ENVIRONMENT: ci
+      SERVERLESS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Verify DB connection
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set. Add it in repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          python -c "import os; u=os.environ['DATABASE_URL']; print('DB scheme:', u.split(':',1)[0])"
+
+      - name: Choose job from schedule
+        id: pick
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 3 * * 1-5")        echo "job=pre_market" >> $GITHUB_OUTPUT ;;
+            "*/10 3-10 * * 1-5")  echo "job=all_market_hours" >> $GITHUB_OUTPUT ;;
+            "0,30 4-10 * * 1-5")  echo "job=signal_scan" >> $GITHUB_OUTPUT ;;
+            "15 10 * * 1-5")      echo "job=overnight" >> $GITHUB_OUTPUT ;;
+            "30 10 * * 1-5")      echo "job=dashboard" >> $GITHUB_OUTPUT ;;
+            "30 20 * * 6")        echo "job=ml_retrain" >> $GITHUB_OUTPUT ;;
+            "30 6 * * 1-5")       echo "job=dashboard" >> $GITHUB_OUTPUT ;;
+            "")                    echo "job=${{ github.event.inputs.job || 'dashboard' }}" >> $GITHUB_OUTPUT ;;
+            *)                     echo "job=all_market_hours" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Run job ${{ steps.pick.outputs.job }}
+        run: |
+          python -m backend.scripts.run_job ${{ steps.pick.outputs.job }} --pretty
