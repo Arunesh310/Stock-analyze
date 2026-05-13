@@ -95,6 +95,20 @@ def job_validation_then_learning() -> None:
     job_refresh_indicators_weights()
 
 
+def job_overnight_cycle() -> None:
+    """Heavy post-close pipeline — validate + learn + recalibrate + regime."""
+    from .services import overnight_engine
+
+    overnight_engine.run_overnight_cycle()
+
+
+def job_pre_market_brief() -> None:
+    """Morning brief: global cues, sector pulse, gap candidates, verdict."""
+    from .services import pre_market_engine
+
+    pre_market_engine.run_pre_market_cycle()
+
+
 # ---------------------------------------------------------------------------
 # Public scheduler control
 # ---------------------------------------------------------------------------
@@ -134,6 +148,20 @@ def start_scheduler() -> None:
     sched.add_job(
         lambda: _safe("expire_1h", job_expire_stale),
         "interval", hours=1, id="expire_1h", coalesce=True, max_instances=1,
+    )
+
+    # ---- Daily cron jobs (Asia/Kolkata) ------------------------------------
+    # Overnight: 15:40 IST — 10 min after NSE close. Heavy validation + learn.
+    sched.add_job(
+        lambda: _safe("overnight_1540", job_overnight_cycle),
+        "cron", hour=15, minute=40, day_of_week="mon-fri",
+        id="overnight_1540", coalesce=True, max_instances=1,
+    )
+    # Pre-market: 08:30 IST — 45 min before NSE open. Global cues + verdict.
+    sched.add_job(
+        lambda: _safe("premarket_0830", job_pre_market_brief),
+        "cron", hour=8, minute=30, day_of_week="mon-fri",
+        id="premarket_0830", coalesce=True, max_instances=1,
     )
 
     sched.start()

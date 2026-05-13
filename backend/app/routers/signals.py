@@ -19,9 +19,9 @@ _MAX_SCAN = 80
 @router.get("", response_model=List[Signal])
 def get_signals(
     mode: str = Query("swing", pattern="^(intraday|swing|positional)$"),
-    min_conf: float = 60,
+    min_conf: float = 65,
     min_grade: str = Query(
-        "MODERATE", pattern="^(AVOID|WEAK|MODERATE|STRONG|HIGH_CONVICTION)$"
+        "STRONG", pattern="^(AVOID|WEAK|MODERATE|STRONG|HIGH_CONVICTION)$"
     ),
     limit: int = 25,
     sector: str | None = None,
@@ -29,7 +29,9 @@ def get_signals(
     """Scan the liquid universe (or a sector) and return ranked actionable signals.
 
     Filters by both ``min_conf`` (raw confidence) and ``min_grade`` (composite
-    quality grade). Default ``min_grade=MODERATE`` rejects WEAK/AVOID setups.
+    quality grade). Defaults are intentionally strict — ``STRONG`` grade and
+    65% confidence — so the API prefers an empty list over a weak trade.
+    Loosen with ``?min_grade=MODERATE`` if you explicitly want more setups.
     """
     if sector:
         syms = universe.symbols_in_sector(sector)[:_MAX_SCAN]
@@ -47,7 +49,7 @@ def top_picks(mode: str = "swing", limit: int = 10) -> list[Signal]:
     sigs = signal_engine.scan_signals(
         stock_master.liquid_symbols(_MAX_SCAN),
         mode=mode,
-        min_conf=60,
+        min_conf=65,
         min_grade="STRONG",
     )
     buys = [s for s in sigs if s.action == "BUY"]
@@ -59,7 +61,7 @@ def opportunities(
     mode: str = Query("swing", pattern="^(intraday|swing|positional)$"),
     limit: int = 12,
 ) -> list[Signal]:
-    """Best opportunities right now — high-quality BUY *and* SELL setups.
+    """Best opportunities right now — only STRONG+ setups by design.
 
     Returns at most ``limit`` signals, ranked by composite quality score.
     Empty list means the market has no acceptable setups — capital
@@ -68,7 +70,7 @@ def opportunities(
     sigs = signal_engine.scan_signals(
         stock_master.liquid_symbols(_MAX_SCAN),
         mode=mode,
-        min_conf=55,
-        min_grade="MODERATE",
+        min_conf=62,
+        min_grade="STRONG",
     )
     return sigs[:limit]

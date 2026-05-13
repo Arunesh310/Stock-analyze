@@ -31,10 +31,12 @@ from .routers import (
     confidence,
     correlations,
     dashboard,
+    failures,
     learning_feedback,
     market_regime,
     market_status as market_status_router,
     news,
+    overnight as overnight_router,
     prediction_performance,
     risk,
     sectors,
@@ -138,6 +140,9 @@ def create_app() -> FastAPI:
     app.include_router(market_regime.router)
     app.include_router(ai_performance.router)
     app.include_router(ai_evolution.router)
+    app.include_router(failures.router)
+    app.include_router(overnight_router.router)
+    app.include_router(overnight_router.pre_market_router)
     app.include_router(capital_planner.router)
     app.include_router(sync_status_router.router)
     app.include_router(market_status_router.router)

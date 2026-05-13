@@ -8,12 +8,16 @@ Aggregates the freshness of every data pipeline the user depends on:
 - Validation engine (last PredictionOutcome update)
 - Market regime classifier (last MarketRegimeSnapshot)
 - WebSocket live tick stream (last broadcast)
+- Overnight learning cycle (last "overnight_cycle" log)
+- Pre-market brief (last "pre_market_brief" log)
+- Counts of signals evaluated & learning updates applied in the last 24h
+- Time-to-next-session (from market_status)
 - Scheduler heartbeat (this process's uptime)
 """
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from ..database import db_session
@@ -138,12 +142,86 @@ def _ws_last_broadcast() -> Optional[datetime]:
 def _prediction_counts() -> dict[str, int]:
     try:
         from ..models.prediction_engine import PredictionHistory, PredictionOutcome
+        cutoff = datetime.utcnow() - timedelta(hours=24)
         with db_session() as db:
             total = db.query(PredictionHistory).count()
             validated = db.query(PredictionOutcome).count()
-            return {"total_predictions": total, "validated": validated}
+            evaluated_24h = (
+                db.query(PredictionHistory)
+                .filter(PredictionHistory.created_at >= cutoff)
+                .count()
+            )
+            return {
+                "total_predictions": total,
+                "validated": validated,
+                "signals_evaluated_24h": evaluated_24h,
+            }
     except Exception:
-        return {"total_predictions": 0, "validated": 0}
+        return {
+            "total_predictions": 0,
+            "validated": 0,
+            "signals_evaluated_24h": 0,
+        }
+
+
+def _learning_updates_24h() -> int:
+    """How many weight_changed log entries have been written in the last 24h?
+    This is the user-visible 'AI adjustments applied' counter."""
+    try:
+        from ..models.prediction_engine import AILearningLog
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        with db_session() as db:
+            return (
+                db.query(AILearningLog)
+                .filter(
+                    AILearningLog.event == "weight_changed",
+                    AILearningLog.created_at >= cutoff,
+                )
+                .count()
+            )
+    except Exception:
+        return 0
+
+
+def _last_event_at(event: str) -> Optional[datetime]:
+    """Return the timestamp of the most-recent AILearningLog row of a kind."""
+    try:
+        from ..models.prediction_engine import AILearningLog
+        with db_session() as db:
+            row = (
+                db.query(AILearningLog)
+                .filter(AILearningLog.event == event)
+                .order_by(AILearningLog.created_at.desc())
+                .first()
+            )
+            return row.created_at if row else None
+    except Exception:
+        return None
+
+
+def _market_session_eta() -> dict[str, Any]:
+    """Time-to-next session boundary, sourced from market_status."""
+    try:
+        from . import market_status
+        snap = market_status.get_market_status()
+        as_dict = snap.model_dump() if hasattr(snap, "model_dump") else dict(snap)
+        return {
+            "state": as_dict.get("state"),
+            "is_open": as_dict.get("is_open"),
+            "label": as_dict.get("label"),
+            "seconds_until_next": as_dict.get("seconds_until_next"),
+            "next_open_at": as_dict.get("next_open_at"),
+            "next_close_at": as_dict.get("next_close_at"),
+        }
+    except Exception:
+        return {
+            "state": "unknown",
+            "is_open": False,
+            "label": "Unknown",
+            "seconds_until_next": None,
+            "next_open_at": None,
+            "next_close_at": None,
+        }
 
 
 def get_status() -> dict[str, Any]:
@@ -153,6 +231,8 @@ def get_status() -> dict[str, Any]:
     valid_ts = _last_validation_at()
     regime_ts = _last_regime_at()
     ws_ts = _ws_last_broadcast()
+    overnight_ts = _last_event_at("overnight_cycle")
+    premarket_ts = _last_event_at("pre_market_brief")
 
     market_age = _seconds_since(market_ts)
     news_age = _seconds_since(news_ts)
@@ -160,14 +240,25 @@ def get_status() -> dict[str, Any]:
     valid_age = _seconds_since(valid_ts)
     regime_age = _seconds_since(regime_ts)
     ws_age = _seconds_since(ws_ts)
+    overnight_age = _seconds_since(overnight_ts)
+    premarket_age = _seconds_since(premarket_ts)
 
     counts = _prediction_counts()
+    learning_updates_24h = _learning_updates_24h()
+    session = _market_session_eta()
+    is_open = session.get("is_open", False)
 
     pipelines = [
         {
             "key": "market_data",
             "label": "Market data",
-            "status": _status_for(market_age, fresh_thresh=120, ok_thresh=600),
+            # Quotes only need to be fresh when market is open; outside session
+            # the cache is intentionally cold.
+            "status": _status_for(
+                market_age,
+                fresh_thresh=120 if is_open else 7200,
+                ok_thresh=600 if is_open else 86400,
+            ),
             "last_at": market_ts.isoformat() if market_ts else None,
             "relative": _fmt_relative(market_age),
             "detail": "yfinance + NSE quotes",
@@ -187,7 +278,9 @@ def get_status() -> dict[str, Any]:
             "last_at": learn_ts.isoformat() if learn_ts else None,
             "relative": _fmt_relative(learn_age),
             "detail": (
-                f"{counts['validated']} validated of {counts['total_predictions']} predictions"
+                f"{learning_updates_24h} weight adjustments in last 24h"
+                if learning_updates_24h
+                else f"{counts['validated']} validated of {counts['total_predictions']} predictions"
             ),
         },
         {
@@ -208,24 +301,60 @@ def get_status() -> dict[str, Any]:
         },
         {
             "key": "websocket",
+            # Only treat WS as offline if market is open — outside session we
+            # don't expect ticks.
             "label": "Live websocket",
-            "status": _status_for(ws_age, fresh_thresh=30, ok_thresh=180),
+            "status": _status_for(
+                ws_age,
+                fresh_thresh=30 if is_open else 86400,
+                ok_thresh=180 if is_open else 86400,
+            ),
             "last_at": ws_ts.isoformat() if ws_ts else None,
             "relative": _fmt_relative(ws_age),
-            "detail": "tick broadcast to frontend",
+            "detail": "tick broadcast to frontend"
+            + ("" if is_open else " (idle when market closed)"),
+        },
+        {
+            "key": "overnight",
+            "label": "Overnight learning",
+            "status": _status_for(overnight_age, fresh_thresh=86400, ok_thresh=172800),
+            "last_at": overnight_ts.isoformat() if overnight_ts else None,
+            "relative": _fmt_relative(overnight_age),
+            "detail": "validation + learning + recalibration after market close",
+        },
+        {
+            "key": "pre_market",
+            "label": "Pre-market brief",
+            "status": _status_for(premarket_age, fresh_thresh=86400, ok_thresh=172800),
+            "last_at": premarket_ts.isoformat() if premarket_ts else None,
+            "relative": _fmt_relative(premarket_age),
+            "detail": "global cues, sector pulse, gap candidates, verdict",
         },
     ]
 
+    # Health rule: market_data + ai_learning are essential; WS is essential
+    # only when market is open.
+    essential = {"market_data", "ai_learning"}
+    if is_open:
+        essential.add("websocket")
+    essential_ok = sum(
+        1 for p in pipelines if p["key"] in essential and p["status"] in ("fresh", "ok")
+    )
     healthy = sum(1 for p in pipelines if p["status"] in ("fresh", "ok"))
     overall = (
-        "healthy" if healthy >= 5 else
-        "degraded" if healthy >= 3 else
-        "offline"
+        "healthy"
+        if essential_ok == len(essential) and healthy >= 5
+        else "degraded"
+        if healthy >= 3
+        else "offline"
     )
+
     return {
         "overall_status": overall,
         "uptime_seconds": int(time.time() - _START_TS),
         "pipelines": pipelines,
         "predictions": counts,
+        "learning_updates_24h": learning_updates_24h,
+        "market_session": session,
         "now": datetime.utcnow().isoformat(),
     }
