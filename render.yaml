@@ -14,7 +14,7 @@ services:
       - key: CORS_ORIGINS
         value: https://stock-analyze-six.vercel.app,https://stock-analyze-arunesh.vercel.app,http://localhost:3000
       - key: DATABASE_URL
-        value: sqlite:///./bharatquant.db
+        value: postgresql://neondb_owner:npg_czgHMOW4pr6A@ep-cool-butterfly-ao9ceqqf.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
       - key: LOG_LEVEL
         value: INFO
       - key: ENVIRONMENT
