@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { FailureAnalysisSection } from "@/components/evolution/FailureAnalysis";
 import { cn, fmtPct, pctClass } from "@/lib/utils";
 
 type Mode = "all" | "intraday" | "swing" | "positional";
@@ -53,6 +54,7 @@ export default function EvolutionPage() {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [refreshSignal, setRefreshSignal] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -92,6 +94,7 @@ export default function EvolutionPage() {
       await api.learning.runCycle();
       await api.validate.run(200);
       await load();
+      setRefreshSignal((n) => n + 1);
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
@@ -156,6 +159,12 @@ export default function EvolutionPage() {
 
       {/* ---- Signal conversion ---- */}
       <ConversionCard conversion={conversion} />
+
+      {/* ---- Failure Analysis Reports (what failed + what AI learned) ---- */}
+      <FailureAnalysisSection
+        mode={mode === "all" ? undefined : mode}
+        refreshSignal={refreshSignal}
+      />
 
       {/* ---- Strategy leaderboard + regime matrix ---- */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

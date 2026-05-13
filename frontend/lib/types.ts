@@ -181,12 +181,173 @@ export type SyncPipeline = {
   detail: string;
 };
 
+export type MarketSessionInfo = {
+  state: "preopen" | "regular" | "afterhours" | "closed" | "unknown" | null;
+  is_open: boolean;
+  label: string;
+  seconds_until_next: number | null;
+  next_open_at: string | null;
+  next_close_at: string | null;
+};
+
 export type SyncStatus = {
   overall_status: "healthy" | "degraded" | "offline";
   uptime_seconds: number;
   pipelines: SyncPipeline[];
-  predictions: { total_predictions: number; validated: number };
+  predictions: {
+    total_predictions: number;
+    validated: number;
+    signals_evaluated_24h?: number;
+  };
+  learning_updates_24h?: number;
+  market_session?: MarketSessionInfo;
   now: string;
+};
+
+// ---------------------------------------------------------------------------
+// Failure analysis
+// ---------------------------------------------------------------------------
+
+export type FailureReportLearning = {
+  log_id: number;
+  event: string;
+  summary: string;
+  name?: string | null;
+  type?: string | null;
+  before?: number | null;
+  after?: number | null;
+  win_rate?: number | null;
+  sample_size?: number | null;
+  impact_score?: number | null;
+  created_at?: string | null;
+};
+
+export type FailureReport = {
+  prediction_id: number;
+  symbol: string;
+  sector?: string | null;
+  action: "BUY" | "SELL" | "HOLD";
+  mode: "intraday" | "swing" | "positional";
+  confidence_at_signal: number;
+  predicted_at: string | null;
+  validated_at: string | null;
+  entry_ref?: number | null;
+  stoploss?: number | null;
+  target1?: number | null;
+  target2?: number | null;
+  rr?: number | null;
+  outcome:
+    | "WIN"
+    | "PARTIAL_WIN"
+    | "LOSS"
+    | "EXPIRED"
+    | "INVALIDATED"
+    | "OPEN";
+  realized_pct?: number | null;
+  max_favorable_pct?: number | null;
+  max_adverse_pct?: number | null;
+  target1_hit: boolean;
+  target2_hit: boolean;
+  stoploss_hit: boolean;
+  entry_triggered: boolean;
+  holding_days?: number | null;
+  market_regime?: string | null;
+  news_sentiment?: number | null;
+  sector_strength?: number | null;
+  breadth_advancers?: number | null;
+  breadth_decliners?: number | null;
+  detected_patterns: string[];
+  category: string;
+  category_title: string;
+  narrative?: string | null;
+  contributing_factors: string[];
+  learning_applied: FailureReportLearning[];
+  is_failure: boolean;
+};
+
+export type TopFailureReason = {
+  category: string;
+  title: string;
+  count: number;
+  avg_confidence_at_signal: number;
+  example: string;
+  regime_breakdown: Record<string, number>;
+};
+
+// ---------------------------------------------------------------------------
+// Overnight + pre-market
+// ---------------------------------------------------------------------------
+
+export type OvernightStatus = {
+  id?: number;
+  summary: string;
+  details: {
+    started_at?: string;
+    duration_seconds?: number;
+    expired?: number | null;
+    validation?: {
+      scanned?: number;
+      closed?: number;
+      still_open?: number;
+      new_wins?: number;
+      new_losses?: number;
+    };
+    learning?: {
+      setups_updated?: number;
+      sectors_updated?: number;
+      indicators_updated?: number;
+      weight_changes?: number;
+    };
+    confidence_buckets?: number;
+    closing_regime?: string | null;
+  };
+  impact_score?: number | null;
+  created_at: string | null;
+};
+
+export type PreMarketCue = {
+  symbol: string;
+  label: string;
+  last: number | null;
+  change_pct: number | null;
+};
+
+export type PreMarketSectorPulse = {
+  sector: string;
+  avg_change_pct: number;
+  sample_size: number;
+  direction: "up" | "down" | "flat";
+};
+
+export type PreMarketGapCandidate = {
+  symbol: string;
+  name: string;
+  sector: string;
+  last_close: number;
+  change_pct_1d: number;
+  change_pct_5d: number;
+  note: string;
+};
+
+export type PreMarketReadiness = {
+  verdict: "FAVORABLE" | "NEUTRAL" | "RISKY" | "UNKNOWN";
+  score: number;
+  bullets: string[];
+};
+
+export type PreMarketBrief = {
+  generated_at: string | null;
+  global_cues: PreMarketCue[];
+  india_vix: number | null;
+  india_vix_change_pct: number | null;
+  top_sectors: PreMarketSectorPulse[];
+  weak_sectors: PreMarketSectorPulse[];
+  gap_candidates: PreMarketGapCandidate[];
+  readiness: PreMarketReadiness;
+  notes: string[];
+  log_id?: number;
+  summary?: string;
+  created_at?: string | null;
 };
 
 export type RollingWindowStats = {

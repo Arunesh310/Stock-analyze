@@ -19,6 +19,7 @@ import {
   Gauge,
   Sparkles,
   Calculator,
+  Sunrise,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ const NAV: {
   group?: string;
 }[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/pre-market", label: "Pre-Market Brief", icon: Sunrise },
   { href: "/signals", label: "AI Signals", icon: TrendingUp },
   { href: "/stocks", label: "Stock Analysis", icon: LineChart },
   { href: "/news", label: "News & Sentiment", icon: Newspaper },

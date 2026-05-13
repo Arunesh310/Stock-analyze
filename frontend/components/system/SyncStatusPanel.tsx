@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   CircleSlash,
   Loader2,
+  Moon,
+  Sunrise,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { SyncPipeline, SyncStatus } from "@/lib/types";
@@ -24,6 +26,14 @@ const ICON: Record<SyncPipeline["status"], React.ReactNode> = {
   stale: <AlertTriangle className="h-3.5 w-3.5" />,
   offline: <CircleSlash className="h-3.5 w-3.5" />,
 };
+
+function formatEta(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || seconds <= 0) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
 
 export function SyncStatusPanel() {
   const [status, setStatus] = React.useState<SyncStatus | null>(null);
@@ -75,9 +85,15 @@ export function SyncStatusPanel() {
       ? "text-amber-400"
       : "text-bear";
 
+  const session = status.market_session;
+  const sessionIcon = session?.is_open ? Sunrise : Moon;
+  const SessionIcon = sessionIcon;
+  const evaluated24h = status.predictions.signals_evaluated_24h ?? 0;
+  const learning24h = status.learning_updates_24h ?? 0;
+
   return (
     <div className="rounded-md border border-border bg-card/40 px-3 py-2">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           <Activity className={cn("h-4 w-4", overallTone)} />
           <span className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">
@@ -86,13 +102,29 @@ export function SyncStatusPanel() {
           <span className={cn("text-xs font-semibold uppercase", overallTone)}>
             {status.overall_status}
           </span>
+          {session && (
+            <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1.5 py-0.5">
+              <SessionIcon className="h-3 w-3" />
+              {session.label}
+              {!session.is_open && session.seconds_until_next
+                ? ` · opens in ${formatEta(session.seconds_until_next)}`
+                : ""}
+            </span>
+          )}
         </div>
-        <span className="text-[10px] text-muted-foreground">
-          Uptime {Math.floor(status.uptime_seconds / 60)}m ·{" "}
-          {status.predictions.validated}/{status.predictions.total_predictions} validated
-        </span>
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+          <span>
+            <span className="text-foreground font-semibold">{evaluated24h}</span> signals
+            evaluated · 24h
+          </span>
+          <span>
+            <span className="text-foreground font-semibold">{learning24h}</span> learning
+            updates · 24h
+          </span>
+          <span>Uptime {Math.floor(status.uptime_seconds / 60)}m</span>
+        </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
         {status.pipelines.map((p) => (
           <div
             key={p.key}

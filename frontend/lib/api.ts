@@ -9,6 +9,7 @@ import type {
   DashboardData,
   DataQuality,
   EquityCurvePoint,
+  FailureReport,
   FeedbackCategoryCount,
   HeatmapCell,
   ImprovementScore,
@@ -20,10 +21,12 @@ import type {
   MarketStatus,
   NewsItem,
   OhlcRow,
+  OvernightStatus,
   PerformanceSummary,
   PortfolioMetrics,
   PlannerRequest,
   PlannerResponse,
+  PreMarketBrief,
   PredictionFull,
   Quote,
   QuoteWithQuality,
@@ -40,6 +43,7 @@ import type {
   SignalOutcomeRow,
   StrategyPerformance,
   SyncStatus,
+  TopFailureReason,
   ValidationRunResult,
   WatchlistOut,
 } from "./types";
@@ -394,5 +398,38 @@ export const api = {
       ),
     recentOutcomes: (limit = 50) =>
       http<SignalOutcomeRow[]>(`/api/ai-evolution/recent-outcomes?limit=${limit}`),
+  },
+
+  failures: {
+    recent: (
+      params: { limit?: number; mode?: string; include_successes?: boolean } = {}
+    ) => {
+      const usp = new URLSearchParams();
+      Object.entries(params).forEach(
+        ([k, v]) => v !== undefined && usp.set(k, String(v))
+      );
+      return http<FailureReport[]>(`/api/failures/recent?${usp.toString()}`);
+    },
+    topReasons: (params: { limit?: number; days?: number; mode?: string } = {}) => {
+      const usp = new URLSearchParams();
+      Object.entries(params).forEach(
+        ([k, v]) => v !== undefined && usp.set(k, String(v))
+      );
+      return http<TopFailureReason[]>(
+        `/api/failures/top-reasons?${usp.toString()}`
+      );
+    },
+    one: (predictionId: number) =>
+      http<FailureReport>(`/api/failures/${predictionId}`),
+  },
+
+  overnight: {
+    status: () => http<OvernightStatus>(`/api/overnight/status`),
+    run: () => http<any>(`/api/overnight/run`, { method: "POST" }),
+  },
+
+  preMarket: {
+    brief: () => http<PreMarketBrief>(`/api/pre-market`),
+    refresh: () => http<PreMarketBrief>(`/api/pre-market/refresh`, { method: "POST" }),
   },
 };
