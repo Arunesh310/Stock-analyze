@@ -1,15 +1,16 @@
 services:
   - type: web
     name: bharatquant-backend
-    runtime: python
+    env: python
     plan: free
     rootDir: backend
-    pythonVersion: "3.12"
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
       - key: CORS_ORIGINS
         value: https://stock-analyze-six.vercel.app,https://stock-analyze-arunesh.vercel.app,http://localhost:3000
       - key: DATABASE_URL
