@@ -100,7 +100,11 @@ def run_and_persist() -> Dict[str, Any]:
 
 def latest_snapshot(max_age_seconds: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """Return the latest persisted snapshot payload, or ``None`` if there
-    is no snapshot or it is older than ``max_age_seconds``."""
+    is no snapshot or it is older than ``max_age_seconds``.
+
+    All attributes are read INSIDE the session — accessing them after the
+    contextmanager exits raises ``DetachedInstanceError`` on SQLAlchemy 2.
+    """
     try:
         with db_session() as db:
             row = (
@@ -109,13 +113,15 @@ def latest_snapshot(max_age_seconds: Optional[int] = None) -> Optional[Dict[str,
                 .order_by(AILearningLog.created_at.desc())
                 .first()
             )
-        if row is None or not row.details:
-            return None
-        if max_age_seconds is not None and row.created_at is not None:
-            age = (datetime.utcnow() - row.created_at).total_seconds()
+            if row is None or not row.details:
+                return None
+            created_at = row.created_at
+            details = row.details
+        if max_age_seconds is not None and created_at is not None:
+            age = (datetime.utcnow() - created_at).total_seconds()
             if age > max_age_seconds:
                 return None
-        return row.details
+        return details
     except Exception as exc:
         logger.warning(f"dashboard_engine.latest_snapshot failed: {exc}")
         return None
@@ -137,18 +143,20 @@ def snapshot_meta() -> Dict[str, Any]:
                 .order_by(AILearningLog.created_at.desc())
                 .first()
             )
-        if row is None:
-            return {"exists": False, "age_seconds": None, "created_at": None}
+            if row is None:
+                return {"exists": False, "age_seconds": None, "created_at": None}
+            created_at = row.created_at
         age = (
-            int((datetime.utcnow() - row.created_at).total_seconds())
-            if row.created_at
+            int((datetime.utcnow() - created_at).total_seconds())
+            if created_at is not None
             else None
         )
         return {
             "exists": True,
             "age_seconds": age,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "created_at": created_at.isoformat() if created_at else None,
             "stale": age is not None and age > _STALE_AFTER_SECONDS,
         }
-    except Exception:
-        return {"exists": False, "age_seconds": None, "created_at": None}
+    except Exception as exc:
+        logger.warning(f"dashboard_engine.snapshot_meta failed: {exc}")
+        return {"exists": False, "age_seconds": None, "created_at": None, "error": str(exc)}
