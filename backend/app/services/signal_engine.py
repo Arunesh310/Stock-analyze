@@ -281,6 +281,38 @@ def build_signal(symbol: str, mode: str = "swing") -> tuple[Signal, Indicators, 
         entry_low = entry_high = stoploss = target1 = target2 = None
         rr = None
 
+    # ----- ML confidence blend (only when model is trained + signal is actionable) -----
+    rule_confidence_value = round(confidence, 1)
+    ml_confidence_value: float | None = None
+    ml_p_win_value: float | None = None
+    if action in ("BUY", "SELL"):
+        try:
+            from . import ml_confidence  # local to avoid import cost when no model
+            ml_out = ml_confidence.score_signal(
+                action=action,
+                mode=mode,
+                confidence_rule=confidence,
+                score=score,
+                entry_ref=last_close,
+                stoploss=stoploss,
+                target1=target1,
+                rr=rr,
+                atr=atr,
+                market_regime=regime,
+                news_sentiment=None,
+                sector_strength=sector_strength_val,
+                breadth_advancers=None,
+                breadth_decliners=None,
+                indicators=ind.model_dump(),
+                patterns=pats,
+            )
+            if ml_out is not None:
+                ml_confidence_value = ml_out["ml_confidence"]
+                ml_p_win_value = ml_out["p_win"]
+                confidence = ml_out["blended_confidence"]
+        except Exception:
+            pass
+
     reasoning_bits = []
     if ind.ema20 and ind.ema50 and ind.ema200:
         if ind.ema20 > ind.ema50 > ind.ema200:
@@ -305,6 +337,12 @@ def build_signal(symbol: str, mode: str = "swing") -> tuple[Signal, Indicators, 
     if no_trade_reasons:
         reasoning_bits.append("NO TRADE — " + "; ".join(no_trade_reasons))
 
+    if ml_confidence_value is not None:
+        reasoning_bits.append(
+            f"ML blend: rule {rule_confidence_value:.0f} → ml {ml_confidence_value:.0f} "
+            f"→ final {round(confidence, 1):.0f}"
+        )
+
     sig = Signal(
         symbol=symbol,
         action=action,  # type: ignore[arg-type]
@@ -324,6 +362,9 @@ def build_signal(symbol: str, mode: str = "swing") -> tuple[Signal, Indicators, 
         quality_grade=quality.grade,  # type: ignore[arg-type]
         quality_breakdown=quality.breakdown,
         no_trade_reasons=no_trade_reasons,
+        ml_confidence=ml_confidence_value,
+        ml_p_win=ml_p_win_value,
+        rule_confidence=rule_confidence_value,
     )
     return sig, ind, pats
 

@@ -251,6 +251,21 @@ def get_status() -> dict[str, Any]:
     session = _market_session_eta()
     is_open = session.get("is_open", False)
 
+    # ML model snapshot — surfaced as a pipeline so the panel makes it
+    # obvious whether the engine is using the learned classifier or just rules.
+    try:
+        from . import ml_confidence
+        ml_state = ml_confidence.status()
+    except Exception:
+        ml_state = {
+            "ready": False,
+            "trained_at": None,
+            "train_samples": 0,
+            "cv_auc": None,
+            "cv_accuracy": None,
+            "min_required_samples": 30,
+        }
+
     pipelines = [
         {
             "key": "market_data",
@@ -333,6 +348,31 @@ def get_status() -> dict[str, Any]:
             "relative": _fmt_relative(premarket_age),
             "detail": "global cues, sector pulse, gap candidates, verdict",
         },
+        {
+            "key": "ml_confidence",
+            "label": "ML confidence model",
+            "status": (
+                "fresh"
+                if ml_state.get("ready") and ml_state.get("cv_auc") is not None
+                else "ok"
+                if ml_state.get("ready")
+                else "offline"
+            ),
+            "last_at": ml_state.get("trained_at"),
+            "relative": (
+                _fmt_relative(_seconds_since(
+                    datetime.fromisoformat(ml_state["trained_at"])
+                    if ml_state.get("trained_at") else None
+                ))
+            ),
+            "detail": (
+                f"XGBoost on {ml_state.get('train_samples', 0)} trades · "
+                f"CV AUC {ml_state.get('cv_auc'):.3f}"
+                if ml_state.get("ready") and ml_state.get("cv_auc") is not None
+                else f"Not enough data yet — {ml_state.get('train_samples', 0)} / "
+                     f"{ml_state.get('min_required_samples', 30)} validated trades"
+            ),
+        },
     ]
 
     # Health rule: market_data + ai_learning are essential; WS is essential
@@ -359,5 +399,13 @@ def get_status() -> dict[str, Any]:
         "predictions": counts,
         "learning_updates_24h": learning_updates_24h,
         "market_session": session,
+        "ml_model": {
+            "ready": ml_state.get("ready", False),
+            "trained_at": ml_state.get("trained_at"),
+            "train_samples": ml_state.get("train_samples", 0),
+            "min_required_samples": ml_state.get("min_required_samples", 30),
+            "cv_auc": ml_state.get("cv_auc"),
+            "cv_accuracy": ml_state.get("cv_accuracy"),
+        },
         "now": datetime.utcnow().isoformat(),
     }

@@ -109,6 +109,13 @@ def job_pre_market_brief() -> None:
     pre_market_engine.run_pre_market_cycle()
 
 
+def job_ml_retrain() -> None:
+    """Refresh the XGBoost confidence model from the latest validated trades."""
+    from .services import ml_confidence
+
+    ml_confidence.retrain()
+
+
 # ---------------------------------------------------------------------------
 # Public scheduler control
 # ---------------------------------------------------------------------------
@@ -162,6 +169,19 @@ def start_scheduler() -> None:
         lambda: _safe("premarket_0830", job_pre_market_brief),
         "cron", hour=8, minute=30, day_of_week="mon-fri",
         id="premarket_0830", coalesce=True, max_instances=1,
+    )
+    # ML retrain: weekly on Sunday 02:00 IST + a one-off attempt 30 min after
+    # boot so a fresh container retrains as soon as the persistent DB has
+    # enough validated trades.
+    sched.add_job(
+        lambda: _safe("ml_retrain_weekly", job_ml_retrain),
+        "cron", hour=2, minute=0, day_of_week="sun",
+        id="ml_retrain_weekly", coalesce=True, max_instances=1,
+    )
+    sched.add_job(
+        lambda: _safe("ml_retrain_warmup", job_ml_retrain),
+        "interval", hours=12, id="ml_retrain_warmup",
+        coalesce=True, max_instances=1,
     )
 
     sched.start()

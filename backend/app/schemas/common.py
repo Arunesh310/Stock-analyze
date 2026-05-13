@@ -128,6 +128,10 @@ class Signal(BaseModel):
     ] = "MODERATE"
     quality_breakdown: dict = Field(default_factory=dict)
     no_trade_reasons: List[str] = []
+    # ML-augmented confidence (filled by ml_confidence when the model is ready)
+    ml_confidence: Optional[float] = None
+    ml_p_win: Optional[float] = None
+    rule_confidence: Optional[float] = None
 
 
 class AnalysisResponse(BaseModel):
