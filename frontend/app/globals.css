@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 18% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 18% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 18% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 199 89% 56%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 19% 18%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 19% 16%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 19% 22%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 19% 22%;
+    --input: 217 19% 22%;
+    --ring: 199 89% 56%;
+
+    --radius: 0.6rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-secondary rounded;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-accent;
+  }
+}
+
+@layer utilities {
+  .text-bull {
+    color: hsl(142 71% 60%);
+  }
+  .text-bear {
+    color: hsl(0 84% 65%);
+  }
+  .bg-bull-soft {
+    background-color: hsl(142 71% 45% / 0.15);
+  }
+  .bg-bear-soft {
+    background-color: hsl(0 84% 60% / 0.15);
+  }
+  .glass {
+    @apply bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/40;
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--border)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: -1px -1px;
+  }
+}
